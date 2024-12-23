@@ -6,8 +6,11 @@ const searchResults = new Map()
 const ITEMS_PER_PAGE = 5
 
 async function handleCommand(interaction) {
+	if (!interaction.isRepliable()) return
+	
 	const query = interaction.options.getString('query')
 	try {
+		await interaction.deferReply()
 		const results = await searchOLX(query)
 		searchResults.set(interaction.user.id, {
 			items: results,
@@ -16,23 +19,33 @@ async function handleCommand(interaction) {
 
 		await sendSearchResults(interaction, results, 0)
 	} catch (error) {
-		await interaction.reply('Сталася помилка при пошуку. Спробуйте ще раз.')
+		console.error('Search error:', error)
+		if (interaction.isRepliable()) {
+			await interaction.editReply('Сталася помилка при пошуку. Спробуйте ще раз.')
+		}
 	}
 }
 
 async function handleButton(interaction) {
+	if (!interaction.isRepliable()) return
+	
 	const [action, userId] = interaction.customId.split('_')
 	if (userId !== interaction.user.id) return
 
-	const userData = searchResults.get(userId)
-	if (!userData) return
+	try {
+		await interaction.deferUpdate()
+		const userData = searchResults.get(userId)
+		if (!userData) return
 
-	let newPage = userData.currentPage
-	if (action === 'next') newPage++
-	if (action === 'prev') newPage--
+		let newPage = userData.currentPage
+		if (action === 'next') newPage++
+		if (action === 'prev') newPage--
 
-	userData.currentPage = newPage
-	await sendSearchResults(interaction, userData.items, newPage, true)
+		userData.currentPage = newPage
+		await sendSearchResults(interaction, userData.items, newPage, true)
+	} catch (error) {
+		console.error('Button error:', error)
+	}
 }
 
 async function searchOLX(query) {
@@ -59,19 +72,20 @@ async function searchOLX(query) {
 }
 
 async function sendSearchResults(interaction, results, page, isUpdate = false) {
+	if (!interaction.isRepliable()) return
+	
 	const startIdx = page * ITEMS_PER_PAGE
 	const endIdx = startIdx + ITEMS_PER_PAGE
 	const pageResults = results.slice(startIdx, endIdx)
 
 	if (pageResults.length === 0) {
-		const reply = await interaction.reply({
+		const message = await interaction.editReply({
 			content: 'Нічого не знайдено.',
-			ephemeral: false,
+			components: []
 		})
+		
 		setTimeout(() => {
-			if (reply && !reply.deleted) {
-				reply.delete().catch(console.error)
-			}
+			message.delete().catch(() => {})
 		}, 3 * 60 * 60 * 1000)
 		return
 	}
