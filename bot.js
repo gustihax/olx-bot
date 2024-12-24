@@ -47,7 +47,6 @@ async function handleButton(interaction) {
 	if (userId !== interaction.user.id) return
 
 	try {
-		await interaction.deferUpdate()
 		const userData = searchResults.get(userId)
 		if (!userData) return
 
@@ -56,10 +55,56 @@ async function handleButton(interaction) {
 		if (action === 'prev') newPage--
 
 		userData.currentPage = newPage
-		await sendSearchResults(interaction, userData.items, newPage, true)
+
+		const embed = createSearchEmbed(userData.items, newPage, userData.query)
+		const row = createNavigationRow(
+			interaction.user.id,
+			newPage,
+			userData.items.length
+		)
+
+		await interaction.update({
+			embeds: [embed],
+			components: [row],
+		})
 	} catch (error) {
 		console.error('Button error:', error)
 	}
+}
+
+function createSearchEmbed(results, page, query) {
+	const startIdx = page * ITEMS_PER_PAGE
+	const endIdx = startIdx + ITEMS_PER_PAGE
+	const pageResults = results.slice(startIdx, endIdx)
+
+	return {
+		color: 0x0099ff,
+		title: `Результати пошуку на OLX: "${query}"`,
+		fields: pageResults.map(item => ({
+			name: item.title,
+			value: `💰 ${item.price}\n🔗 [Посилання](${item.link})`,
+		})),
+		footer: {
+			text: `Сторінка ${page + 1}/${Math.ceil(
+				results.length / ITEMS_PER_PAGE
+			)}`,
+		},
+	}
+}
+
+function createNavigationRow(userId, page, totalResults) {
+	return new ActionRowBuilder().addComponents(
+		new ButtonBuilder()
+			.setCustomId(`prev_${userId}`)
+			.setLabel('◀️ Назад')
+			.setStyle(ButtonStyle.Primary)
+			.setDisabled(page === 0),
+		new ButtonBuilder()
+			.setCustomId(`next_${userId}`)
+			.setLabel('Вперед ▶️')
+			.setStyle(ButtonStyle.Primary)
+			.setDisabled((page + 1) * ITEMS_PER_PAGE >= totalResults)
+	)
 }
 
 async function searchOLX(query) {
@@ -88,42 +133,14 @@ async function searchOLX(query) {
 async function sendSearchResults(interaction, results, page, isUpdate = false) {
 	if (!interaction.isRepliable()) return
 
-	const startIdx = page * ITEMS_PER_PAGE
-	const endIdx = startIdx + ITEMS_PER_PAGE
-	const pageResults = results.slice(startIdx, endIdx)
-
 	const userData = searchResults.get(interaction.user.id)
 	const query =
 		userData?.query ||
 		interaction.options?.getString('query') ||
 		'Пошуковий запит'
 
-	const embed = {
-		color: 0x0099ff,
-		title: `Результати пошуку на OLX: "${query}"`,
-		fields: pageResults.map(item => ({
-			name: item.title,
-			value: `💰 ${item.price}\n🔗 [Посилання](${item.link})`,
-		})),
-		footer: {
-			text: `Сторінка ${page + 1}/${Math.ceil(
-				results.length / ITEMS_PER_PAGE
-			)}`,
-		},
-	}
-
-	const row = new ActionRowBuilder().addComponents(
-		new ButtonBuilder()
-			.setCustomId(`prev_${interaction.user.id}`)
-			.setLabel('◀️ Назад')
-			.setStyle(ButtonStyle.Primary)
-			.setDisabled(page === 0),
-		new ButtonBuilder()
-			.setCustomId(`next_${interaction.user.id}`)
-			.setLabel('Вперед ▶️')
-			.setStyle(ButtonStyle.Primary)
-			.setDisabled(endIdx >= results.length)
-	)
+	const embed = createSearchEmbed(results, page, query)
+	const row = createNavigationRow(interaction.user.id, page, results.length)
 
 	const message = isUpdate
 		? await interaction.update({
