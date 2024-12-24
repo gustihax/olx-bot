@@ -7,28 +7,42 @@ const ITEMS_PER_PAGE = 5
 
 async function handleCommand(interaction) {
 	if (!interaction.isRepliable()) return
-	
+
 	const query = interaction.options.getString('query')
 	try {
 		await interaction.deferReply()
 		const results = await searchOLX(query)
+
+		if (results.length === 0) {
+			const message = await interaction.editReply({
+				content: 'Нічого не знайдено.',
+				components: [],
+			})
+			setTimeout(() => message.delete().catch(() => {}), 3 * 60 * 60 * 1000)
+			return
+		}
+
 		searchResults.set(interaction.user.id, {
 			items: results,
 			currentPage: 0,
+			query: query,
 		})
 
 		await sendSearchResults(interaction, results, 0)
 	} catch (error) {
 		console.error('Search error:', error)
 		if (interaction.isRepliable()) {
-			await interaction.editReply('Сталася помилка при пошуку. Спробуйте ще раз.')
+			const message = await interaction.editReply(
+				'Сталася помилка при пошуку. Спробуйте ще раз.'
+			)
+			setTimeout(() => message.delete().catch(() => {}), 3 * 60 * 60 * 1000)
 		}
 	}
 }
 
 async function handleButton(interaction) {
 	if (!interaction.isRepliable()) return
-	
+
 	const [action, userId] = interaction.customId.split('_')
 	if (userId !== interaction.user.id) return
 
@@ -73,26 +87,20 @@ async function searchOLX(query) {
 
 async function sendSearchResults(interaction, results, page, isUpdate = false) {
 	if (!interaction.isRepliable()) return
-	
+
 	const startIdx = page * ITEMS_PER_PAGE
 	const endIdx = startIdx + ITEMS_PER_PAGE
 	const pageResults = results.slice(startIdx, endIdx)
 
-	if (pageResults.length === 0) {
-		const message = await interaction.editReply({
-			content: 'Нічого не знайдено.',
-			components: []
-		})
-		
-		setTimeout(() => {
-			message.delete().catch(() => {})
-		}, 3 * 60 * 60 * 1000)
-		return
-	}
+	const userData = searchResults.get(interaction.user.id)
+	const query =
+		userData?.query ||
+		interaction.options?.getString('query') ||
+		'Пошуковий запит'
 
 	const embed = {
 		color: 0x0099ff,
-		title: 'Результати пошуку на OLX',
+		title: `Результати пошуку на OLX: "${query}"`,
 		fields: pageResults.map(item => ({
 			name: item.title,
 			value: `💰 ${item.price}\n🔗 [Посилання](${item.link})`,
@@ -117,21 +125,19 @@ async function sendSearchResults(interaction, results, page, isUpdate = false) {
 			.setDisabled(endIdx >= results.length)
 	)
 
-	if (isUpdate) {
-		await interaction.update({ embeds: [embed], components: [row] })
-	} else {
-		const reply = await interaction.reply({
-			embeds: [embed],
-			components: [row],
-			fetchReply: true,
-		})
+	const message = isUpdate
+		? await interaction.update({
+				embeds: [embed],
+				components: [row],
+				fetchReply: true,
+		  })
+		: await interaction.editReply({
+				embeds: [embed],
+				components: [row],
+				fetchReply: true,
+		  })
 
-		setTimeout(() => {
-			if (reply && !reply.deleted) {
-				reply.delete().catch(console.error)
-			}
-		}, 3 * 60 * 60 * 1000)
-	}
+	setTimeout(() => message.delete().catch(() => {}), 3 * 60 * 60 * 1000)
 }
 
 module.exports = {
